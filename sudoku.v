@@ -46,10 +46,16 @@ module sudoku
     reg [3:0] latestDigit = 4'd0;           // latest digit used in TRY_DIGIT state
 
     reg [1:0] check_state;
-    reg [3:0] k;
-    reg       conflict_found;
-    reg       check_start;                  // main FSM pulses this to start the check process
-    reg       check_done;                   // check pulses this when finished
+    reg [3:0] k;                            // 
+    reg       conflict_found;               // Pulses high once a matching digit is found
+    reg       check_start;                  // Main FSM pulses this to start the checking process
+    reg       check_done;                   // Sub FSM pulses this once the checking process is completed
+
+    // Sub states for checker
+    parameter CHECK_ROW = 0;
+    parameter CHECK_COL = 1;
+    parameter CHECK_BOX = 2;
+    parameter CHECK_DONE = 3;
 
     integer i; // loop variable
 
@@ -82,7 +88,7 @@ module sudoku
             // Find empty: Checks if grid[i] == 0, moves onto possible candidate state
             // If all cells are not empty, check if done is signaled --> puzzle is solved
             STATE_FIND_EMPTY: begin
-                latestDigit <= 4'd0;
+                latestDigit <= 4'd1;
                 for (i = 0; i < 81; i = i + 1) begin
                     if (grid[i] == 0) begin
                         emptyCell = i;
@@ -91,8 +97,6 @@ module sudoku
                     state <= done ? STATE_DONE : STATE_FIND_EMPTY;
                 end
             end
-            // possible register to save the last "try_digit" and use that for the next candidate attempt to save time? (uses up resources)
-
 
             // Try digit: puts in a digit (1-9) and moves onto the checking state to see whether it is a valid attempt
             // if not valid, moves onto the next digit
@@ -109,6 +113,9 @@ module sudoku
                 check_start <= 1'b0;
                 if (check_done) begin
                     state <= conflict_found ? STATE_TRY_DIGIT : STATE_FIND_EMPTY;
+                end else begin
+                    state <= STATE_CHECK;
+                    // Stays in check until check_done is pulsed, then moves onto next state
                 end
             end
 
@@ -122,11 +129,26 @@ module sudoku
         endcase
     end
 
-
     // Checker sub-FSM block
     always @(posedge clk) begin
         if (btn1) begin
             check_state <= CHECK_ROW;
+            check_done <= 1'b0;
+        end else begin
+            case (check_state)
+            CHECK_ROW: begin
+                if (check_start) begin
+                    k <= 0;
+                    conflict_found <= 1'b0;
+                    check_done <= 1'b0;
+                    check_state <= CHECK_ROW;
+                end
+                // Comparison logic for row begins:
+
+                for ()
+            end
+                
+            endcase
         end
     end
 
