@@ -38,11 +38,9 @@ module sudoku
     reg [3:0] grid [80:0];
         // grid[0-8] represents rows 1-9; grid[9-17] represents rows 10-18; and so on
         // 4'b0000 = 0, 4'b0001 = 1, ..., 4'b1001 = 9
-
-    // Element that tells the solver whether the cell came pre-filled or not (digits 1-9)
     reg given[80:0];
 
-    reg [6:0] emptyCell = 6'd0;             // 
+    reg [6:0] emptyCell = 6'd0;             // Index of an empty cell
     reg [3:0] latestDigit = 4'd0;           // latest digit used in TRY_DIGIT state
 
     reg [1:0] check_state;
@@ -56,6 +54,8 @@ module sudoku
     parameter CHECK_COL = 1;
     parameter CHECK_BOX = 2;
     parameter CHECK_DONE = 3;
+
+    reg [3:0] row, cell, box;
 
     integer i; // loop variable
 
@@ -85,30 +85,30 @@ module sudoku
                 state <= STATE_FIND_EMPTY;
             end
 
-            // Find empty: Checks if grid[i] == 0, moves onto possible candidate state
-            // If all cells are not empty, check if done is signaled --> puzzle is solved
+            // Find empty: Checks every single cell if it is empty (equals 0)
+            // If the cell is empty, assigns the index to emptyCell and moves onto the TRY_DIGIT state
+            // If all cells are not empty and no conflicting candidates, move into DONE state
             STATE_FIND_EMPTY: begin
                 latestDigit <= 4'd1;
                 for (i = 0; i < 81; i = i + 1) begin
                     if (grid[i] == 0) begin
-                        emptyCell = i;
+                        emptyCell <= i;
                         state <= STATE_TRY_DIGIT;
                     end
                     state <= done ? STATE_DONE : STATE_FIND_EMPTY;
                 end
             end
 
-            // Try digit: puts in a digit (1-9) and moves onto the checking state to see whether it is a valid attempt
-            // if not valid, moves onto the next digit
+            // Try digit: puts in a candidate (1-9) and moves onto the CHECK state to see whether it is a valid candidate
             STATE_TRY_DIGIT: begin
                 grid[emptyCell] <= latestDigit;
                 check_start <= 1'b1;                    // Start signal for the checking sub FSM
                 state <= STATE_CHECK;
             end
 
-            // Checking: checks the cells in the same row/col/box if the candidate is valid
+            // Check: checks the cells in the same row/col/box if the candidate is valid
             // If it is valid, moves back into the FIND_EMPTY state to look for the next empty cell
-            // If not valid, moves back into the TRY_DIGIT state and attempts the candidate + 1 value
+            // If it is not valid, moves back into the TRY_DIGIT state and attempts the candidate + 1 value
             STATE_CHECK: begin
                 check_start <= 1'b0;
                 if (check_done) begin
@@ -138,14 +138,21 @@ module sudoku
             case (check_state)
             CHECK_ROW: begin
                 if (check_start) begin
-                    k <= 0;
+                    k <= 4'd0; // k is the specific digit we're checking against
                     conflict_found <= 1'b0;
                     check_done <= 1'b0;
                     check_state <= CHECK_ROW;
                 end
-                // Comparison logic for row begins:
+                // Comparison logic for row:
+                
+                // emptyCell is saved when FSM gets to this state --> emptyCell returns the index of the grid
+                // emptyCell = 20 = bottom right of top left box; row = 2; col = 2; box = 0
+                row <= emptyCell / 9;
+                col <= emptyCell % 9;
+                box <= ; // figure out later
 
                 for ()
+                
             end
                 
             endcase
