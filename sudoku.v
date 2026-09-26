@@ -55,7 +55,17 @@ module sudoku
     parameter CHECK_BOX = 2;
     parameter CHECK_DONE = 3;
 
-    reg [3:0] row, cell, box;
+    // Empty Cell row, column, and box indexes
+    reg [3:0] row, col, box;
+        // emptyCell is saved when FSM gets to this state --> emptyCell returns the index of the grid
+        // emptyCell = 20 = bottom right of top left box; row = 2; col = 2; box = 0
+    row <= emptyCell / 9; // 2: Row 2
+    col <= emptyCell % 9; // 2: Col 2
+    box <= (row / 3) * 3 + (col / 3); // 0: Box 0
+    // Box start indexes
+    reg [4:0] box_row_start <= (row / 3) * 3;
+    reg [4:0] box_col_start <= (col / 3) * 3;
+    reg [6:0] box_cell_index;
 
     integer i; // loop variable
 
@@ -135,12 +145,6 @@ module sudoku
             check_state <= CHECK_ROW; // not sure if this makes sense, check_state, by default (reset), is CHECK_ROW?
             check_done <= 1'b0;
         end else begin
-            // emptyCell is saved when FSM gets to this state --> emptyCell returns the index of the grid
-            // emptyCell = 20 = bottom right of top left box; row = 2; col = 2; box = 0
-            row <= emptyCell / 9; // 2: Row 2
-            col <= emptyCell % 9; // 2: Col 2
-            box <= (row / 3) * 3 + (col / 3); // 0: Box 0
-
             case (check_state)
             CHECK_ROW: begin
                 if (check_start) begin
@@ -181,15 +185,23 @@ module sudoku
                 end
             end
 
+            // Check Box: checks each
             CHECK_BOX: begin
                 if (check_start) begin
                     k <= 4'd0;
                     conflict_found <= 1'b0;
                     check_done <= 1'b0;
+                end else if (!check_done) begin
+                    box_cell_index = (box_row_start + (k / 3)) * 9 + (box_col_start + (k % 3));
+                    if (grid[emptyCell] == grid[box_cell_index]) begin
+                        conflict_found <= 1'b1;
+                        check_done <= 1'b1;
+                    end
+                end else if (k == 8) begin
+                    check_done <= 1'b1;
+                end else begin
+                    k <= k + 1'b1;
                 end
-
-                // Comparison logic for box:
-
             end
             endcase
         end
