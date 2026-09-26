@@ -56,16 +56,14 @@ module sudoku
     parameter CHECK_DONE = 3;
 
     // Empty Cell row, column, and box indexes
-    reg [3:0] row, col, box;
-        // emptyCell is saved when FSM gets to this state --> emptyCell returns the index of the grid
-        // emptyCell = 20 = bottom right of top left box; row = 2; col = 2; box = 0
-    row <= emptyCell / 9; // 2: Row 2
-    col <= emptyCell % 9; // 2: Col 2
-    box <= (row / 3) * 3 + (col / 3); // 0: Box 0
-    // Box start indexes
-    reg [4:0] box_row_start <= (row / 3) * 3;
-    reg [4:0] box_col_start <= (col / 3) * 3;
-    reg [6:0] box_cell_index;
+    wire [3:0] row, col, box_row_start, box_col_start;
+    assign row = emptyCell / 9;
+    assign col = emptyCell % 9;
+    assign box_row_start = (row / 3) * 3;
+    assign box_col_start = (col / 3) * 3;
+    
+    wire [6:0] box_cell_index;
+    assign box_cell_index = (box_row_start + (k / 3)) * 9 + (box_col_start + (k % 3));
 
     integer i; // loop variable
 
@@ -74,69 +72,75 @@ module sudoku
             state <= STATE_IDLE;
             checking <= 1'b0;
             done <= 1'b0;
-        end
-
-        case(state)
-
-            // Idle: watches the line for the start bit
-            STATE_IDLE: begin
-                checking <= 1'b0;
-                done <= 1'b0;
-                state <= start ? STATE_LOAD : STATE_IDLE;
-            end
-
-            // Load: unpacks the 324-bit puzzle into grid and records which cells are givens
-            STATE_LOAD: begin
-                checking <= 1'b1;
-                for (i = 0; i < 81; i = i + 1) begin
-                    grid[i] <= puzzle[i*4 +: 4];
-                    given[i] <= (puzzle[i*4 +: 4] != 4'd0);
+        end else begin
+            case(state)
+                // Idle: watches the line for the start bit
+                STATE_IDLE: begin
+                    checking <= 1'b0;
+                    done <= 1'b0;
+                    state <= start ? STATE_LOAD : STATE_IDLE;
                 end
-                state <= STATE_FIND_EMPTY;
-            end
 
-            // Find empty: Checks every single cell if it is empty (equals 0)
-            // If the cell is empty, assigns the index to emptyCell and moves onto the TRY_DIGIT state
-            // If all cells are not empty and no conflicting candidates, move into DONE state
-            STATE_FIND_EMPTY: begin
-                latestDigit <= 4'd1;
-                for (i = 0; i < 81; i = i + 1) begin
-                    if (grid[i] == 0) begin
-                        emptyCell <= i;
-                        state <= STATE_TRY_DIGIT;
+                // Load: unpacks the 324-bit puzzle into grid and records which cells are givens
+                STATE_LOAD: begin
+                    checking <= 1'b1;
+                    for (i = 0; i < 81; i = i + 1) begin
+                        grid[i] <= puzzle[i*4 +: 4];
+                        given[i] <= (puzzle[i*4 +: 4] != 4'd0);
                     end
-                    state <= done ? STATE_DONE : STATE_FIND_EMPTY;
+                    state <= STATE_FIND_EMPTY;
                 end
-            end
 
-            // Try digit: puts in a candidate (1-9) and moves onto the CHECK state to see whether it is a valid candidate
-            STATE_TRY_DIGIT: begin
-                grid[emptyCell] <= latestDigit;
-                check_start <= 1'b1;                    // Start signal for the checking sub FSM
-                state <= STATE_CHECK;
-            end
-
-            // Check: checks the cells in the same row/col/box if the candidate is valid
-            // If it is valid, moves back into the FIND_EMPTY state to look for the next empty cell
-            // If it is not valid, moves back into the TRY_DIGIT state and attempts the candidate + 1 value
-            STATE_CHECK: begin
-                check_start <= 1'b0;
-                if (check_done) begin
-                    state <= conflict_found ? STATE_TRY_DIGIT : STATE_FIND_EMPTY;
-                end else begin
-                    state <= STATE_CHECK;
-                    // Stays in check until check_done is pulsed, then moves onto next state
+                // Find empty: Checks every single cell if it is empty (equals 0)
+                // If the cell is empty, assigns the index to emptyCell and moves onto the TRY_DIGIT state
+                // If all cells are not empty and no conflicting candidates, move into DONE state
+                STATE_FIND_EMPTY: begin
+                    latestDigit <= 4'd1;
+                    state <= STATE_DONE;                    // Assumes done until loop says otherwise
+                    for (i = 0; i < 81; i = i + 1) begin
+                        if (grid[i] == 0) begin
+                            emptyCell <= i;
+                            state <= STATE_TRY_DIGIT;
+                        end
+                    end
                 end
-            end
 
-            STATE_BACKTRACK: begin
+                // Try digit: puts in a candidate (1-9) and moves onto the CHECK state to see whether it is a valid candidate
+                STATE_TRY_DIGIT: begin
+                    if (latestDigit > 9) begin
+                        state <= STATE_BACKTRACK;
+                    end else begin
+                        grid[emptyCell] <= latestDigit;
+                        latestDigit <= latestDigit + 1'b1;
+                        // because everything updates in the next clock edge, this doesn't make 
+                        // grid[emptyCell] = (latestDigit + 1) until the next clock edge
+                        check_start <= 1'b1;                // Start signal for the checking sub FSM
+                        state <= STATE_CHECK;
+                    end
+                end
 
-            end
+                // Check: checks the cells in the same row/col/box if the candidate is valid
+                // If it is valid, moves back into the FIND_EMPTY state to look for the next empty cell
+                // If it is not valid, moves back into the TRY_DIGIT state and attempts the candidate + 1 value
+                STATE_CHECK: begin
+                    check_start <= 1'b0;
+                    if (check_done) begin
+                        state <= conflict_found ? STATE_TRY_DIGIT : STATE_FIND_EMPTY;
+                    end else begin
+                        state <= STATE_CHECK;
+                        // Stays in check until check_done is pulsed, then moves onto next state
+                    end
+                end
 
-            STATE_DONE: begin
+                STATE_BACKTRACK: begin
 
-            end
-        endcase
+                end
+
+                STATE_DONE: begin
+
+                end
+            endcase
+        end
     end
 
     // Checker sub-FSM block
@@ -180,6 +184,7 @@ module sudoku
                 end else if (k == 8) begin
                     check_state <= CHECK_BOX;
                     check_start <= 1'b1;                // pulse start for next sub-check
+                    k <= 4'd0;
                 end else begin
                     k <= k + 1'b1;
                 end
@@ -191,16 +196,27 @@ module sudoku
                     k <= 4'd0;
                     conflict_found <= 1'b0;
                     check_done <= 1'b0;
-                end else if (!check_done) begin
-                    box_cell_index = (box_row_start + (k / 3)) * 9 + (box_col_start + (k % 3));
-                    if (grid[emptyCell] == grid[box_cell_index]) begin
-                        conflict_found <= 1'b1;
-                        check_done <= 1'b1;
-                    end
-                end else if (k == 8) begin
+                end
+
+                // Comparison logic for box:
+                if (box_cell_index != emptyCell && (grid[emptyCell] == grid[box_cell_index])) begin
+                    conflict_found <= 1'b1;
                     check_done <= 1'b1;
+                end else if (k == 8) begin
+                    check_state <= CHECK_DONE;
+                    check_done <= 1'b1;
+                    k <= 4'd0;
                 end else begin
                     k <= k + 1'b1;
+                end
+            end
+
+            CHECK_DONE: begin
+                if (check_start) begin
+                    check_state <= CHECK_ROW;
+                    k <= 4'd0;
+                    conflict_found <= 1'b0;
+                    check_done <= 1'b0;
                 end
             end
             endcase
