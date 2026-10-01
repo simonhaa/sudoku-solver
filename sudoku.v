@@ -17,12 +17,12 @@ module sudoku
     output reg [81*4 - 1:0] solution        // Solution grid
 );
 
-    // States
+    // Main FSM states
     parameter STATE_IDLE = 0;               // Waiting for start bit
     parameter STATE_LOAD = 1;               // Unpacks the puzzle --> grid, marks the givens
     parameter STATE_FIND_EMPTY = 2;         // Finds the next non-given cell to try
     parameter STATE_TRY_DIGIT = 3;          // Attempts next candidate digit
-    parameter STATE_CHECK = 4;           // Validates the row/col/box
+    parameter STATE_CHECK = 4;              // Validates the row/col/box
     parameter STATE_BACKTRACK = 5;          // Undo and retry previous cell
     parameter STATE_DONE = 6;               // Signals done once the whole grid is solved
 
@@ -38,7 +38,7 @@ module sudoku
     reg [3:0] grid [80:0];
         // grid[0-8] represents rows 1-9; grid[9-17] represents rows 10-18; and so on
         // 4'b0000 = 0, 4'b0001 = 1, ..., 4'b1001 = 9
-    reg given[80:0];
+    reg given [80:0];
 
     reg [6:0] emptyCell = 6'd0;             // Index of an empty cell
     reg [3:0] latestDigit = 4'd0;           // latest digit used in TRY_DIGIT state
@@ -49,7 +49,7 @@ module sudoku
     reg       check_start;                  // Main FSM pulses this to start the checking process
     reg       check_done;                   // Sub FSM pulses this once the checking process is completed
 
-    // Sub states for checker
+    // Sub FSM states for checker
     parameter CHECK_ROW = 0;
     parameter CHECK_COL = 1;
     parameter CHECK_BOX = 2;
@@ -91,12 +91,12 @@ module sudoku
                     state <= STATE_FIND_EMPTY;
                 end
 
-                // Find empty: Checks every single cell if it is empty (equals 0)
+                // Find empty: checks every single cell if it is empty (equals 0)
                 // If the cell is empty, assigns the index to emptyCell and moves onto the TRY_DIGIT state
                 // If all cells are not empty and no conflicting candidates, move into DONE state
                 STATE_FIND_EMPTY: begin
                     latestDigit <= 4'd1;
-                    state <= STATE_DONE;                    // Assumes done until loop says otherwise
+                    state <= STATE_DONE;                    // fix: Assumes done until loop says otherwise
                     for (i = 0; i < 81; i = i + 1) begin
                         if (grid[i] == 0) begin
                             emptyCell <= i;
@@ -112,7 +112,7 @@ module sudoku
                     end else begin
                         grid[emptyCell] <= latestDigit;
                         latestDigit <= latestDigit + 1'b1;
-                        // because everything updates in the next clock edge, this doesn't make 
+                        // fix: because everything updates in the next clock edge, this doesn't make 
                         // grid[emptyCell] = (latestDigit + 1) until the next clock edge
                         check_start <= 1'b1;                // Start signal for the checking sub FSM
                         state <= STATE_CHECK;
@@ -132,7 +132,16 @@ module sudoku
                     end
                 end
 
+                // Backtrack: if a state loops between states TRY_DIGIT and CHECK, latestDigit increments past the digit 9,
+                // meaning the candidate is invalid; this state will move into the previous cell(s) and attempts a new candidate other than it's previous one
+                // Iterates the past cell (emptyCell - 1) with its former latestDigit + 1
+                // If still not viable (if pastCell's latestDigit is > 9), keep moving in the pastCell (emptyCell - 2)
+                // Backtrack will be recursive (how you do implement recursion in Verilog??)
                 STATE_BACKTRACK: begin
+                    grid[emptyCell] <= 1'b0;
+                    if (emptyCell != 1'b0) begin
+                        emptyCell <= emptyCell - 1'b1;
+                    end
 
                 end
 
@@ -211,6 +220,7 @@ module sudoku
                 end
             end
 
+            // Check done: resets variables and moves check_state back into check_row to prepare for the next empty cell
             CHECK_DONE: begin
                 if (check_start) begin
                     check_state <= CHECK_ROW;
