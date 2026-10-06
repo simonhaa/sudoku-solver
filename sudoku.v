@@ -47,12 +47,14 @@ module sudoku
     reg       conflict_found;               // Pulses high once a matching digit is found
     reg       check_start;                  // Main FSM pulses this to start the checking process
     reg       check_done;                   // Sub FSM pulses this once the checking process is completed
+    reg       backtracking;                 // Main FSM pulses this to start the backtracking process
 
     // Sub FSM states for checker
-    parameter CHECK_ROW = 0;
-    parameter CHECK_COL = 1;
-    parameter CHECK_BOX = 2;
-    parameter CHECK_DONE = 3;
+    parameter CHECK_IDLE = 0;
+    parameter CHECK_ROW = 1;
+    parameter CHECK_COL = 2;
+    parameter CHECK_BOX = 3;
+    parameter CHECK_DONE = 4;
 
     // Empty Cell row, column, and box indexes
     wire [3:0] row, col, box_row_start, box_col_start;
@@ -69,8 +71,9 @@ module sudoku
     always @(posedge clk) begin
         if (btn1) begin
             state <= STATE_IDLE;
-            checking <= 1'b0;
+            check_state <= CHECK_IDLE;
             done <= 1'b0;
+            backtracking <= 1'b0;
         end else begin
             case(state)
                 // Idle: watches the line for the start bit
@@ -93,6 +96,7 @@ module sudoku
                 // Find empty: checks every single cell if it is empty (equals 0)
                 // If the cell is empty, assigns the index to emptyCell and moves onto the TRY_DIGIT state
                 // If all cells are not empty and no conflicting candidates, move into DONE state
+                // This state should ignore the givens in the puzzle, but be sure to incorporate the givens in the backtracking state
                 STATE_FIND_EMPTY: begin
                     latestDigit <= 4'd1;
                     state <= STATE_DONE;                    // fix: Assumes done until loop says otherwise
@@ -109,6 +113,19 @@ module sudoku
                     if (latestDigit > 4'd9) begin
                         state <= STATE_BACKTRACK;
                     end else begin
+                        if (backtracking) begin
+                            if (grid[emptyCell] == 4'd9) begin
+                                // If emptyCell is decremented (which it is once backtracking is high), and grid[emptyCell] == 9
+                                // Decrement emptyCell again
+                                state <= STATE_BACKTRACK;
+                            end else if (!conflict_found) begin
+                                backtracking <= 1'b0;
+                            end else begin
+                            grid[emptyCell] <= grid[emptyCell] + 1'b1;
+                            check_start <= 1'b1;
+                            state <= STATE_CHECK;
+                            end
+                        end
                         grid[emptyCell] <= latestDigit;
                         latestDigit <= latestDigit + 1'b1;
                         // fix: because everything updates in the next clock edge, this doesn't make 
@@ -131,8 +148,20 @@ module sudoku
                     end
                 end
 
+                // Backtrack: if the base case is reached (when emptyCell reaches 0), the board is invalid
+                // Invalid board: moves to STATE_DONE and asserts done signal
+                // Backtracking process: makes sure emptyCell (index) is not equal to a given (index)
+                // If equal: emptyCell decrements again
+                // If not equal: 
                 STATE_BACKTRACK: begin
-
+                    if (emptyCell == 7'd0) begin
+                        state <= STATE_DONE; 
+                    end else begin
+                        grid[emptyCell] <= 4'd0;
+                        emptyCell <= (emptyCell != given[emptyCell]) ? emptyCell - 1'b1 : emptyCell - 1'b1;
+                        backtracking <= 1'b1;
+                        state <= TRY_DIGIT;
+                    end
                 end
 
                 // Done: signals done if board is either solved or board is invalid (which just signals done if its in this state lol)
@@ -153,6 +182,13 @@ module sudoku
             check_done <= 1'b0;
         end else begin
             case (check_state)
+            CHECK_IDLE: begin
+                if (check_start) begin
+                    check_start <= 1'b1;
+                    check_state <= CHECK_ROW
+                end
+            end
+
             CHECK_ROW: begin
                 if (check_start) begin
                     k <= 4'd0;
