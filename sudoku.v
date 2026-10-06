@@ -12,7 +12,6 @@ module sudoku
     input wire btn1,                        // Asynchronous reset, active-high (adjust if needed)
     input wire start,                       // Start signal
     input wire [81*4 - 1:0] puzzle,         // Puzzle grid: 9 x 9 grid, each digit is 4 bits
-    output reg checking,                    // Checking signal
     output reg done,                        // Done signal
     output reg [81*4 - 1:0] solution        // Solution grid
 );
@@ -107,7 +106,7 @@ module sudoku
 
                 // Try digit: puts in a candidate (1-9) and moves onto the CHECK state to see whether it is a valid candidate
                 STATE_TRY_DIGIT: begin
-                    if (latestDigit > 9) begin
+                    if (latestDigit > 4'd9) begin
                         state <= STATE_BACKTRACK;
                     end else begin
                         grid[emptyCell] <= latestDigit;
@@ -132,21 +131,16 @@ module sudoku
                     end
                 end
 
-                // Backtrack: if a state loops between states TRY_DIGIT and CHECK, latestDigit increments past the digit 9,
-                // meaning the candidate is invalid; this state will move into the previous cell(s) and attempts a new candidate other than it's previous one
-                // Iterates the past cell (emptyCell - 1) with its former latestDigit + 1
-                // If still not viable (if pastCell's latestDigit is > 9), keep moving in the pastCell (emptyCell - 2)
-                // Backtrack will be recursive (how you do implement recursion in Verilog??)
                 STATE_BACKTRACK: begin
-                    grid[emptyCell] <= 1'b0;
-                    if (emptyCell != 1'b0) begin
-                        emptyCell <= emptyCell - 1'b1;
-                    end
 
                 end
 
+                // Done: signals done if board is either solved or board is invalid (which just signals done if its in this state lol)
+                // Also displays "Board is Unsolvable" on the interface
                 STATE_DONE: begin
-
+                    solution <= puzzle;
+                    done <= 1'b1;
+                    state <= STATE_IDLE;
                 end
             endcase
         end
@@ -155,7 +149,7 @@ module sudoku
     // Checker sub-FSM block
     always @(posedge clk) begin
         if (btn1) begin
-            check_state <= CHECK_ROW; // not sure if this makes sense, check_state, by default (reset), is CHECK_ROW?
+            check_state <= CHECK_ROW;
             check_done <= 1'b0;
         end else begin
             case (check_state)
@@ -199,7 +193,6 @@ module sudoku
                 end
             end
 
-            // Check Box: checks each
             CHECK_BOX: begin
                 if (check_start) begin
                     k <= 4'd0;
@@ -213,16 +206,15 @@ module sudoku
                     check_done <= 1'b1;
                 end else if (k == 8) begin
                     check_state <= CHECK_DONE;
-                    check_done <= 1'b1;
+                    check_done <= 1'b1;                 // pulse start for done state
                     k <= 4'd0;
                 end else begin
                     k <= k + 1'b1;
                 end
             end
 
-            // Check done: resets variables and moves check_state back into check_row to prepare for the next empty cell
             CHECK_DONE: begin
-                if (check_start) begin
+                if (check_done) begin
                     check_state <= CHECK_ROW;
                     k <= 4'd0;
                     conflict_found <= 1'b0;
