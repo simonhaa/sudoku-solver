@@ -1,15 +1,10 @@
+`timescale 1ns/1ps
 `default_nettype none
 
-module sudoku 
-#(
-    parameter DELAY_FRAMES = 868
-    // However many clock cycles that make up one bit period
-    // 100 MHz / 115200 Baud Rate = ~868
-)
-
+module sudoku
 (
     input wire clk,                         // System clock
-    input wire btn1,                        // Asynchronous reset, active-high (adjust if needed)
+    input wire button_1,                    // Asynchronous reset, active-high (adjust if needed)
     input wire start,                       // Start signal
     input wire [81*4 - 1:0] puzzle,         // Puzzle grid: 9 x 9 grid, each digit is 4 bits
     output reg done,                        // Done signal
@@ -27,9 +22,6 @@ module sudoku
 
     reg [2:0] state;
     reg [16:0] count; 
-    // 115200 baud rate = 115200 bits per second --> max timer before reset is ~1 second (tentative)
-    // each bit takes 868 clock cycles (because 100 MHz oscillator)
-    
     // Internal grid storage
 
         // Unpacked grid with 81 elements (indices 0 to 80),
@@ -39,7 +31,7 @@ module sudoku
         // 4'b0000 = 0, 4'b0001 = 1, ..., 4'b1001 = 9
     reg given [80:0];
 
-    reg [6:0] emptyCell = 6'd0;             // Index of an empty cell
+    reg [6:0] emptyCell = 7'd0;             // Index of an empty cell
     reg [3:0] latestDigit = 4'd0;           // latest digit used in TRY_DIGIT state
 
     reg [1:0] check_state;
@@ -69,7 +61,7 @@ module sudoku
     integer i; // loop variable
 
     always @(posedge clk) begin
-        if (btn1) begin
+        if (button_1) begin
             state <= STATE_IDLE;
             check_state <= CHECK_IDLE;
             done <= 1'b0;
@@ -177,8 +169,8 @@ module sudoku
 
     // Checker sub-FSM block
     always @(posedge clk) begin
-        if (btn1) begin
-            check_state <= CHECK_ROW;
+        if (button_1) begin
+            check_state <= CHECK_IDLE;
             check_done <= 1'b0;
         end else begin
             case (check_state)
@@ -202,7 +194,6 @@ module sudoku
                     check_done <= 1'b1;
                 end else if (k == 8) begin              // successfully iterated to the end of the row without any conflicts
                     check_state <= CHECK_COL;
-                    check_start <= 1'b1;                // pulse start for next sub-check
                     k <= 4'd0;
                 end else begin
                     k <= k + 1'b1;
@@ -222,7 +213,6 @@ module sudoku
                     check_done <= 1'b1;
                 end else if (k == 8) begin
                     check_state <= CHECK_BOX;
-                    check_start <= 1'b1;                // pulse start for next sub-check
                     k <= 4'd0;
                 end else begin
                     k <= k + 1'b1;
@@ -242,7 +232,6 @@ module sudoku
                     check_done <= 1'b1;
                 end else if (k == 8) begin
                     check_state <= CHECK_DONE;
-                    check_done <= 1'b1;                 // pulse start for done state
                     k <= 4'd0;
                 end else begin
                     k <= k + 1'b1;
@@ -250,12 +239,10 @@ module sudoku
             end
 
             CHECK_DONE: begin
-                if (check_done) begin
-                    check_state <= CHECK_ROW;
-                    k <= 4'd0;
-                    conflict_found <= 1'b0;
-                    check_done <= 1'b0;
-                end
+                check_state <= CHECK_ROW;
+                k <= 4'd0;
+                conflict_found <= 1'b0;
+                check_done <= 1'b1;
             end
             endcase
         end
