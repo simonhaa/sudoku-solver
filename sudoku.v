@@ -34,7 +34,7 @@ module sudoku
     reg [6:0] cell = 7'd0;             // Index of an empty cell
     reg [3:0] latestDigit = 4'd0;           // latest digit used in TRY_DIGIT state
 
-    reg [1:0] check_state;
+    reg [2:0] check_state;
     reg [3:0] k;                            // Index that walks across the 9 cells in the row we check
     reg       conflict_found;               // Pulses high once a matching digit is found
     reg       check_start;                  // Main FSM pulses this to start the checking process
@@ -47,16 +47,6 @@ module sudoku
     parameter CHECK_COL = 2;
     parameter CHECK_BOX = 3;
     parameter CHECK_DONE = 4;
-
-    // Empty Cell row, column, and box indexes
-    wire [3:0] row, col, box_row_start, box_col_start;
-    assign row = cell / 9;
-    assign col = cell % 9;
-    assign box_row_start = (row / 3) * 3;
-    assign box_col_start = (col / 3) * 3;
-    
-    wire [6:0] box_cell_index;
-    assign box_cell_index = (box_row_start + (k / 3)) * 9 + (box_col_start + (k % 3));
 
     integer i; // loop variable
 
@@ -165,6 +155,18 @@ module sudoku
         end
     end
 
+    // Cell row, column, and box indexes
+    wire [3:0] row, col, box_row_start, box_col_start;
+    wire [6:0] box_cell_index;
+
+    always @(*) begin
+        row = cell / 9;
+        col = cell & 9;
+        box_row_start = (row / 3) * 3;
+        box_col_start = (col / 3) * 3;
+        box_cell_index = (box_row_start + (k / 3)) * 9 + (box_col_start + (k % 3));
+    end
+
     // Checker sub-FSM block
     always @(posedge clk) begin
         if (button_1) begin
@@ -175,7 +177,7 @@ module sudoku
             CHECK_IDLE: begin
                 if (check_start) begin
                     check_start <= 1'b1;
-                    check_state <= CHECK_ROW
+                    check_state <= CHECK_ROW;
                 end
             end
 
