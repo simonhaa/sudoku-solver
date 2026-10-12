@@ -12,6 +12,16 @@ module sudoku
     output reg solved                       // 1 = solved, 0 = unsolvable
 );
 
+    // Asynchronous reset assertion & synchronous reset deassertion
+    // Created 
+    wire rst;
+
+    reset_sync u_reset_sync (
+        .clk(clk),
+        .async_rst(button_1),
+        .sync_rst(rst)
+    );
+
     // Main FSM states
     parameter STATE_IDLE = 0;               // Waits for start
     parameter STATE_LOAD = 1;               // Copies puzzle onto grid; records which cells are givens
@@ -33,12 +43,11 @@ module sudoku
     // Internal grid storage
     reg [3:0] grid [80:0];                  // Board, one 4-bit digit per cell (0 = empty)
     reg given [80:0];                       // Cell that was in the original puzzle (unmodified)
+                                            // Loaded givens are assumed to be valid (non-contradictory)
 
     reg [6:0] cell_index = 7'd0;            // Cell currently being filled (0...80)
     reg [3:0] latestDigit = 4'd0;           // Next candidate to try (1...9; 10 is "exhausted")
     reg [3:0] k = 4'd0;                     // Checker scan position (0...8): used to compare which neighbor in row/col/box
-    
-
     
     reg       conflict_found;               // 1 = candidate duplicates a neighbor; cleared when next check starts
     reg       check_start;                  // Main --> checker: begin checking (one pulse)
@@ -46,8 +55,8 @@ module sudoku
 
     integer i;                              // Loop variable for unrolled loops: 32-bit width
 
-    always @(posedge clk or posedge button_1) begin
-        if (button_1) begin
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
             state <= STATE_IDLE;
             done <= 1'b0;
             solved <= 1'b0;
@@ -168,8 +177,8 @@ module sudoku
     assign check_box = (box_cell_index != cell_index && (grid[cell_index] == grid[box_cell_index]));
 
     // Checker sub-FSM block
-    always @(posedge clk or posedge button_1) begin
-        if (button_1) begin
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
             check_state     <= CHECK_IDLE;
             check_done      <= 1'b0;
             k               <= 4'd0;
