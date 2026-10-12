@@ -19,42 +19,36 @@ module sudoku
     parameter STATE_TRY_DIGIT = 3;          // Attempts next candidate digit
     parameter STATE_CHECK = 4;              // Validates the row/col/box
     parameter STATE_BACKTRACK = 5;          // Undo and retry previous cell
-    parameter STATE_DONE = 6;               // Signals done once the whole grid is solved
-
-    reg [2:0] state;
-    reg [16:0] count; 
-    // Internal grid storage
-
-        // Unpacked grid with 81 elements (indices 0 to 80),
-        // where each element is a 4-bit register holding a digit (0-9, 0 represents an empty cell)
-    reg [3:0] grid [80:0];
-        // grid[0-8] represents rows 1-9; grid[9-17] represents rows 10-18; and so on
-        // 4'b0000 = 0, 4'b0001 = 1, ..., 4'b1001 = 9
-    reg given [80:0];
-
-    reg [6:0] cell = 7'd0;             // Index of an empty cell
-    reg [3:0] latestDigit = 4'd0;           // latest digit used in TRY_DIGIT state
-
-    reg [2:0] check_state;
-    reg [3:0] k = 0;                        // Index that walks across the 9 cells in the row we check
-    reg       conflict_found;               // Pulses high once a matching digit is found
-    reg       check_start;                  // Main FSM pulses this to start the checking process
-    reg       check_done;                   // Sub FSM pulses this once the checking process is completed
-    reg       backtracking;                 // Main FSM pulses this to start the backtracking process
+    parameter STATE_BACKTRACK_SKIP = 6;     // Skips over the givens when backtracking
+    parameter STATE_DONE = 7;               // Signals done once the whole grid is solved
 
     // Sub FSM states for checker
     parameter CHECK_IDLE = 0;
     parameter CHECK_START = 1;
     parameter CHECK_DONE = 2;
 
-    integer i; // loop variable
+    reg [2:0] state;
+    reg [2:0] check_state;
 
-    always @(posedge clk) begin
+    // Internal grid storage
+    reg [3:0] grid [80:0];
+    reg given [80:0];
+
+    reg [6:0] cell = 7'd0;                  // Index of an empty cell
+    reg [3:0] latestDigit = 4'd0;           // latest digit used in TRY_DIGIT state
+    reg [3:0] k = 4'd0;                     // Index that walks across the 9 cells in the row we check
+    
+    reg       conflict_found;               // Pulses high once a matching digit is found
+    reg       check_start;                  // Main FSM pulses this to start the checking process
+    reg       check_done;                   // Sub FSM pulses this once the checking process is completed
+
+    integer i; // loop variable; 32 bits wide
+
+    always @(posedge clk or posedge button_1) begin
         if (button_1) begin
             state <= STATE_IDLE;
-            check_state <= CHECK_IDLE;
             done <= 1'b0;
-            backtracking <= 1'b0;
+            solved <= 1'b0;
             check_start <= 1'b0;
         end else begin
             case(state)
@@ -70,19 +64,22 @@ module sudoku
                         grid[i] <= puzzle[i*4 +: 4];
                         given[i] <= (puzzle[i*4 +: 4] != 4'd0);
                     end
+                    solved <= 1'b0;
                     state <= STATE_FIND_EMPTY;
                 end
 
                 // Find empty: checks every single cell if it is empty (equals 0)
                 // If the cell is empty, assigns the index to cell and moves onto the TRY_DIGIT state
                 // If all cells are not empty and no conflicting candidates, move into DONE state
-                // This state should ignore the givens in the puzzle, but be sure to incorporate the givens in the backtracking state
+                // Loop counts down such that the lowest empty index wins
                 STATE_FIND_EMPTY: begin
                     latestDigit <= 4'd1;
-                    state <= STATE_DONE;                    // fix: Assumes done until loop says otherwise
-                    for (i = 0; i < 81; i = i + 1) begin
-                        if (grid[i] == 0) begin
-                            cell <= i;
+                    solved      <= 1'b1;
+                    state       <= STATE_DONE;
+                    for (i = 80; i >= 0; i = i - 1) begin
+                        if (grid[i] == 4'd0) begin
+                            cell <= i[6:0];
+                            solved <= 1'b0;
                             state <= STATE_TRY_DIGIT;
                         end
                     end
@@ -93,19 +90,6 @@ module sudoku
                     if (latestDigit > 4'd9) begin
                         state <= STATE_BACKTRACK;
                     end else begin
-                        if (backtracking) begin
-                            if (grid[cell] == 4'd9) begin
-                                // If cell is decremented (which it is once backtracking is high), and grid[cell] == 9
-                                // Decrement cell again
-                                state <= STATE_BACKTRACK;
-                            end else if (!conflict_found) begin
-                                backtracking <= 1'b0;
-                            end else begin
-                            grid[cell] <= grid[cell] + 1'b1;
-                            check_start <= 1'b1;
-                            state <= STATE_CHECK;
-                            end
-                        end
                         grid[cell] <= latestDigit;
                         latestDigit <= latestDigit + 1'b1;
                         // fix: because everything updates in the next clock edge, this doesn't make 
@@ -119,7 +103,7 @@ module sudoku
                 // If it is valid, moves back into the FIND_EMPTY state to look for the next empty cell
                 // If it is not valid, moves back into the TRY_DIGIT state and attempts the candidate + 1 value
                 STATE_CHECK: begin
-                    check_start <= 1'b0; // pulsed when state is in TRY_DIGIT; remains LOW in this state
+                    check_start <= 1'b0;
                     if (check_done) begin
                         state <= conflict_found ? STATE_TRY_DIGIT : STATE_FIND_EMPTY;
                     end else begin
@@ -128,29 +112,40 @@ module sudoku
                     end
                 end
 
-                // Backtrack: if the base case is reached (when cell reaches 0), the board is invalid
-                // Invalid board: moves to STATE_DONE and asserts done signal
-                // Backtracking process: makes sure cell (index) is not equal to a given (index)
-                // If equal: cell decrements again
-                // If not equal: 
+                // Backtrack: sets the current cell to 0 and decrements the cell's index
+                // Easier to split the logic into two states
+                // Skip handles the logic for both the givens and the candidate cells
                 STATE_BACKTRACK: begin
+                    grid[cell] <= 4'd0;
                     if (cell == 7'd0) begin
-                        state <= STATE_DONE; 
+                        state <= STATE_DONE;            // puzzle is unsolvable
                     end else begin
-                        grid[cell] <= 4'd0;
-                        cell <= (cell != given[cell]) ? cell - 1'b1 : cell - 1'b1;
-                        backtracking <= 1'b1;
+                        cell <= cell - 1'b1;
+                        state <= STATE_BACKTRACK_SKIP;
+                    end
+                end
+
+                // Backtrack Skip: handles the backtracking logic for the givens and valid cells
+                STATE_BACKTRACK_SKIP: begin
+                    if (given[cell]) begin
+                        if (cell == 7'd0)   state <= STATE_DONE;    // unsolvable because iterates past 0
+                        else                cell <= cell - 1'b1;
+                    end else begin
+                        latestDigit <= grid[cell] + 1'b1;           // if it's 10, tries again
                         state <= STATE_TRY_DIGIT;
                     end
                 end
 
-                // Done: signals done if board is either solved or board is invalid (which just signals done if its in this state lol)
-                // Also displays "Board is Unsolvable" on the interface
+                // Done: sets the solution equal to the grid once the board is solved
                 STATE_DONE: begin
-                    solution <= solved ? puzzle : grid;
+                    for (i = 0; i < 81; i = i + 1) begin
+                        solution[i*4 +: 4] <= grid[i];
+                    end
                     done <= 1'b1;
                     state <= STATE_IDLE;
                 end
+
+                default: state <= STATE_IDLE;
             endcase
         end
     end
@@ -171,7 +166,7 @@ module sudoku
     assign check_box = (box_cell_index != cell && (grid[cell] == grid[box_cell_index]));
 
     // Checker sub-FSM block
-    always @(posedge clk) begin
+    always @(posedge clk or posedge button_1) begin
         if (button_1) begin
             check_state     <= CHECK_IDLE;
             check_done      <= 1'b0;
