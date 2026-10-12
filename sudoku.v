@@ -8,7 +8,8 @@ module sudoku
     input wire start,                       // Start signal
     input wire [81*4 - 1:0] puzzle,         // Puzzle grid: 9 x 9 grid, each digit is 4 bits
     output reg done,                        // Done signal
-    output reg [81*4 - 1:0] solution        // Solution grid
+    output reg [81*4 - 1:0] solution,        // Solution grid
+    output reg solved
 );
 
     // Main FSM states
@@ -35,7 +36,7 @@ module sudoku
     reg [3:0] latestDigit = 4'd0;           // latest digit used in TRY_DIGIT state
 
     reg [2:0] check_state;
-    reg [3:0] k;                            // Index that walks across the 9 cells in the row we check
+    reg [3:0] k = 0;                        // Index that walks across the 9 cells in the row we check
     reg       conflict_found;               // Pulses high once a matching digit is found
     reg       check_start;                  // Main FSM pulses this to start the checking process
     reg       check_done;                   // Sub FSM pulses this once the checking process is completed
@@ -43,10 +44,8 @@ module sudoku
 
     // Sub FSM states for checker
     parameter CHECK_IDLE = 0;
-    parameter CHECK_ROW = 1;
-    parameter CHECK_COL = 2;
-    parameter CHECK_BOX = 3;
-    parameter CHECK_DONE = 4;
+    parameter CHECK_START = 1;
+    parameter CHECK_DONE = 2;
 
     integer i; // loop variable
 
@@ -56,6 +55,7 @@ module sudoku
             check_state <= CHECK_IDLE;
             done <= 1'b0;
             backtracking <= 1'b0;
+            check_start <= 1'b0;
         end else begin
             case(state)
                 // Idle: watches the line for the start bit
@@ -119,7 +119,7 @@ module sudoku
                 // If it is valid, moves back into the FIND_EMPTY state to look for the next empty cell
                 // If it is not valid, moves back into the TRY_DIGIT state and attempts the candidate + 1 value
                 STATE_CHECK: begin
-                    check_start <= 1'b0;
+                    check_start <= 1'b0; // pulsed when state is in TRY_DIGIT; remains LOW in this state
                     if (check_done) begin
                         state <= conflict_found ? STATE_TRY_DIGIT : STATE_FIND_EMPTY;
                     end else begin
@@ -137,8 +137,8 @@ module sudoku
                     if (cell == 7'd0) begin
                         state <= STATE_DONE; 
                     end else begin
-                        grid[emptyCell] <= 4'd0;
-                        emptyCell <= (emptyCell != given[emptyCell]) ? emptyCell - 1'b1 : emptyCell - 1'b1;
+                        grid[cell] <= 4'd0;
+                        cell <= (cell != given[cell]) ? cell - 1'b1 : cell - 1'b1;
                         backtracking <= 1'b1;
                         state <= STATE_TRY_DIGIT;
                     end
@@ -147,7 +147,7 @@ module sudoku
                 // Done: signals done if board is either solved or board is invalid (which just signals done if its in this state lol)
                 // Also displays "Board is Unsolvable" on the interface
                 STATE_DONE: begin
-                    solution <= puzzle;
+                    solution <= solved ? puzzle : grid;
                     done <= 1'b1;
                     state <= STATE_IDLE;
                 end
@@ -158,78 +158,41 @@ module sudoku
     // Cell row, column, and box indexes
     wire [3:0] row, col, box_row_start, box_col_start;
     wire [6:0] box_cell_index;
+    wire check_row, check_col, check_box;
 
-    always @(*) begin
-        row = cell / 9;
-        col = cell & 9;
-        box_row_start = (row / 3) * 3;
-        box_col_start = (col / 3) * 3;
-        box_cell_index = (box_row_start + (k / 3)) * 9 + (box_col_start + (k % 3));
-    end
+    assign row = cell / 9;
+    assign col = cell % 9;
+    assign box_row_start = (row / 3) * 3;
+    assign box_col_start = (col / 3) * 3;
+    assign box_cell_index = (box_row_start + (k / 3)) * 9 + (box_col_start + (k % 3));
+
+    assign check_row = (k != col && (grid[cell] == grid[row*9 + k]));
+    assign check_col = (k != row && (grid[cell] == grid[col + k*9]));
+    assign check_box = (box_cell_index != cell && (grid[cell] == grid[box_cell_index]));
 
     // Checker sub-FSM block
     always @(posedge clk) begin
         if (button_1) begin
-            check_state <= CHECK_IDLE;
-            check_done <= 1'b0;
+            check_state     <= CHECK_IDLE;
+            check_done      <= 1'b0;
+            k               <= 4'd0;
+            conflict_found  <= 1'b0;
         end else begin
             case (check_state)
             CHECK_IDLE: begin
+                check_done <= 1'b0;
                 if (check_start) begin
-                    check_start <= 1'b1;
-                    check_state <= CHECK_ROW;
+                    k               <= 4'd0;
+                    conflict_found  <= 1'b0;
+                    check_state     <= CHECK_START;
                 end
             end
 
-            CHECK_ROW: begin
-                if (check_start) begin
-                    k <= 4'd0;
-                    conflict_found <= 1'b0;
-                    check_done <= 1'b0;                 // pulses high after successful CHECK_BOX
-                end
-
-                // Comparison logic for row:
-                if (k != col && (grid[cell] == grid[row*9 + k])) begin
+            CHECK_START: begin
+                if (check_row | check_col | check_box) begin
                     conflict_found <= 1'b1;
                     check_done <= 1'b1;
-                end else if (k == 8) begin              // successfully iterated to the end of the row without any conflicts
-                    check_state <= CHECK_COL;
-                    k <= 4'd0;
-                end else begin
-                    k <= k + 1'b1;
-                end
-            end
-                
-            CHECK_COL: begin
-                if (check_start) begin
-                    k <= 4'd0;
-                    conflict_found <= 1'b0;
-                    check_done <= 1'b0;
-                end
-
-                // Comparison logic for col:
-                if (k != row && (grid[cell] == grid[col + k*9])) begin
-                    conflict_found <= 1'b1;
-                    check_done <= 1'b1;
-                end else if (k == 8) begin
-                    check_state <= CHECK_BOX;
-                    k <= 4'd0;
-                end else begin
-                    k <= k + 1'b1;
-                end
-            end
-
-            CHECK_BOX: begin
-                if (check_start) begin
-                    k <= 4'd0;
-                    conflict_found <= 1'b0;
-                    check_done <= 1'b0;
-                end
-
-                // Comparison logic for box:
-                if (box_cell_index != cell && (grid[cell] == grid[box_cell_index])) begin
-                    conflict_found <= 1'b1;
-                    check_done <= 1'b1;
+                    check_state <= CHECK_IDLE;
                 end else if (k == 8) begin
                     check_state <= CHECK_DONE;
                     k <= 4'd0;
@@ -239,10 +202,15 @@ module sudoku
             end
 
             CHECK_DONE: begin
-                check_state <= CHECK_ROW;
-                k <= 4'd0;
-                conflict_found <= 1'b0;
                 check_done <= 1'b1;
+                check_state <= CHECK_IDLE;
+            end
+
+            default: begin 
+                check_state     <= CHECK_IDLE;
+                check_done      <= 1'b0;
+                k               <= 4'd0;
+                conflict_found  <= 1'b0;
             end
             endcase
         end
