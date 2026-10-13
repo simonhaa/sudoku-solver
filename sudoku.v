@@ -61,6 +61,9 @@ module sudoku
             done <= 1'b0;
             solved <= 1'b0;
             check_start <= 1'b0;
+
+            row <= 4'd0;
+            col <= 4'd0;
         end else begin
             case(state)
                 // Idle: watches the line for the start bit
@@ -90,6 +93,8 @@ module sudoku
                     for (i = 80; i >= 0; i = i - 1) begin
                         if (grid[i] == 4'd0) begin
                             cell_index <= i[6:0];           // same bit-width as cell_index
+                            row <= row / 9;
+                            col <= col % 9;
                             solved <= 1'b0;
                             state <= STATE_TRY_DIGIT;
                         end
@@ -132,6 +137,10 @@ module sudoku
                         state <= STATE_DONE;            // puzzle is unsolvable
                     end else begin
                         cell_index <= cell_index - 1'b1;
+                        // cell_index depends on row and col
+                        // only updates row and col when cell_index is referenced in order to save LUTs
+                        row <= (col == 4'd0) ? row - 1'b1 : row;
+                        col <= (col == 4'd0) ? 4'd8 : col - 1'b1;
                         state <= STATE_BACKTRACK_SKIP;
                     end
                 end
@@ -139,8 +148,15 @@ module sudoku
                 // Backtrack Skip: handles the backtracking logic for the givens and valid cells
                 STATE_BACKTRACK_SKIP: begin
                     if (given[cell_index]) begin
-                        if (cell_index == 7'd0)     state <= STATE_DONE;    // unsolvable because cell decrements past 0
-                        else                        cell_index <= cell_index - 1'b1;
+                        if (cell_index == 7'd0) begin 
+                            state <= STATE_DONE;    // unsolvable because cell decrements past 0
+                        end else begin 
+                            cell_index <= cell_index - 1'b1;
+                            // cell_index depends on row and col
+                            // only updates row and col when cell_index is referenced in order to save LUTs 
+                            row <= (col == 4'd0) ? row - 1'b1 : row;
+                            col <= (col == 4'd0) ? 4'd8 : col - 1'b1;
+                        end
                     end else begin
                         latestDigit <= grid[cell_index] + 1'b1;             // if it's 10, tries again
                         state <= STATE_TRY_DIGIT;
@@ -166,8 +182,6 @@ module sudoku
     wire [6:0] box_cell_index;
     wire check_row, check_col, check_box;
 
-    assign row = cell_index / 9;
-    assign col = cell_index % 9;
     assign box_row_start = (row / 3) * 3;
     assign box_col_start = (col / 3) * 3;
     assign box_cell_index = (box_row_start + (k / 3)) * 9 + (box_col_start + (k % 3));

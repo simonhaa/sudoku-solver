@@ -50,10 +50,10 @@ def is_valid_solution(sol, puzzle):
 async def reset(dut):
     dut.start.value = 0
     dut.puzzle.value = 0
-    dut.button_1.value = 1
+    dut.rst.value = 1
     await ClockCycles(dut.clk, 3)
-    dut.button_1.value = 0
-    await ClockCycles(dut.clk, 2)
+    dut.rst.value = 0
+    await ClockCycles(dut.clk, 4)
 
 async def setup(dut):
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
